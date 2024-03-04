@@ -68,6 +68,7 @@ def fix_bibtex_url(url):
     url = re.sub(r"\\_", "_", url)
     url = re.sub(r"\\&", "&", url)
     url = re.sub(r"\\#", "#", url)
+    url = re.sub(r"\\%", "%", url)
     url = url.replace("&#38;", "&")
     return url
 
