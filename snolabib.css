@@ -1,0 +1,36 @@
+li.bibitem {
+    padding-top: 1em;
+}
+div.filters {
+    margin-left: 10px;
+}
+div.filters>div {
+    display: flex;
+    flex-direction: column;
+}
+div.filters button {
+    background-color: #eee; 
+    border-radius: 4px;
+    border-style: inherit;
+    margin: 2px;
+    text-align: start;
+}
+div.filters button span.bibcount {
+    color: #777;
+}
+div.filters button:hover {
+    background-color: #aaa;
+}
+div.filters button.fset {
+    background-color: lightgreen; 
+}
+body {
+    display: flex;
+    flex-direction: row-reverse;
+}
+div.filters {
+    flex-basis: 20%;
+}
+div.publications {
+    flex-basis: 80%;
+}

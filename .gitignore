@@ -1,3 +1,9 @@
+# Avoid committing bib-files
+*.bib
+
+# do not commit citeproc-java
+citeproc-java*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
