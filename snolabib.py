@@ -247,17 +247,18 @@ def fix_html(source_file, authors_file, bib_file, template_file, output_file):
 
        Also removes fake https://localhost/ urls used to link refs without URLs back to bibtex
     """
-    print(f"fixing refs in {source_file} to allow filtering by year & authors in {bib_file}")
+    print(f"fixing refs in {source_file} to allow filtering by year & author & venue accoding to {bib_file}")
 
-    # note: docs at /home/mfreire/.local/lib/python3.10/site-packages/bibtexparser
+    # note: docs at ~/.local/lib/python3.10/site-packages/bibtexparser
     # see https://github.com/sciunto-org/python-bibtexparser/blob/main/examples/quickstart.ipynb
-    with open(bib_file, 'r') as bib_f:
-        library = btp.load(bib_f) 
 
+    # build an url_to_bibitem map from the .bib file
     url_to_bibitem = {}       
     items_without_url = 0
     total_items = 0
-    for i, entry in enumerate(library.entries):
+    with open(bib_file, 'r') as bib_f:
+        library = btp.load(bib_f) 
+    for _, entry in enumerate(library.entries):
         if 'url' not in entry:
             items_without_url += 1
             print(f"No URL in {entry['ID']} (from {entry['year'] if 'year' in entry else '???'})")
@@ -265,40 +266,52 @@ def fix_html(source_file, authors_file, bib_file, template_file, output_file):
         total_items += 1
     print(f"\tfound {total_items} items in bibliography, of which {items_without_url} cannot be linked due to missing url")
 
+    # build an url_to_html map from the .html to fix
     url_to_html = {}
     with open(source_file, 'r') as source_f:
         read_items(source_f.read(), url_to_html)
-    
-    with open(authors_file, 'r') as authors_f:
-        authors = authors_f.read()
 
+    # iterate url_to_html map, generating enriched html for each item
+    linked_items = []
     items_without_url = 0
     total_items = 0
+    for key, fragment in url_to_html.items():
+        if key not in url_to_bibitem:
+            print(f"url not in bib: {key}")
+            items_without_url+=1
+            continue
+        bib = url_to_bibitem[key]
+        authors_and_editors = (
+            f"{'Authors: ' + bib['author'] if 'author' in bib else ''}\n"
+            + f"{'Eds: ' + bib['editor'] if 'editor' in bib else ''}").split(' and\n')        
+        fragment['data-dblpid'] = bib['ID']
+        fragment['data-authors'] = bib['dblpid']
+        fragment['data-year'] = bib['year']
+        fragment['data-venue'] = extract_venue(bib['ID']),
+        fragment['class'] = 'bibitem'
+        fragment['title'] = fix_authors(", ".join(authors_and_editors))
+        text = str(fragment)
+        if re.search(r"https://localhost", text) is not None:
+            # this is a false URL; must be removed
+            text = re.sub(r" \[Online\].*", "</li>", text)
+        linked_items.append(f"{text}\n")
+        total_items +=1
+
+    # sort by most recent first
+    def item_year(i):
+        return int(re.search(r"data-year=.([0-9]+)", i).group(1))
+    linked_items.sort(key=item_year, reverse=True)
+
+    # output using template; template can also take authors
     with open(template_file, 'r') as template_f:
-        pre_template, post_template = template_f.read().split('$ITEMS_GO_HERE$', 1)
-    pre_authors, post_authors = pre_template.split("$AUTHORS_GO_HERE$", 1)
+        template = template_f.read()
+    with open(authors_file, 'r') as authors_f:
+        template = template.replace(
+            "$AUTHORS_GO_HERE$", authors_f.read())            
     with open(output_file, 'w') as output_f:
-        output_f.write(pre_authors)
-        output_f.write(authors)
-        output_f.write(post_authors)
-        for key, fragment in url_to_html.items():
-            if key not in url_to_bibitem:
-                print(f"url not in bib: {key}")
-                items_without_url+=1
-                continue
-            bib = url_to_bibitem[key]
-            fragment['data-dblpid'] = bib['ID']
-            fragment['data-authors'] = bib['dblpid']
-            fragment['data-year'] = bib['year']
-            fragment['data-venue'] = extract_venue(bib['ID']),
-            fragment['class'] = 'bibitem'
-            text = str(fragment)
-            if re.search(r"https://localhost", text) is not None:
-                # this is a false URL; must be removed
-                text = re.sub(r" \[Online\].*", "</li>", text)
-            output_f.write(f"{text}\n")
-            total_items +=1
-        output_f.write(post_template)
+        output_f.write(template.replace(
+            "$ITEMS_GO_HERE$", "".join(linked_items)))
+
     print(f"\tfixed {total_items} references, could not fix {items_without_url}; after applying template {template_file}, output written to {output_file}");
 
 def abort_if_missing(required_args, args):
@@ -313,34 +326,29 @@ def abort_if_missing(required_args, args):
 if __name__ == '__main__':      
     year = datetime.date.today().year
     five_years_ago = year-5
-    example_author_entry = """
-         "mfreire": {
-             "id": "232/9796",
-             "full": "Manuel Freire Morán"
-         },
-    """
+    citeproc_url = "https://github.com/michel-kraemer/citeproc-java/releases/download/2.0.0/citeproc-java-tool-2.0.0.zip"
 
     parser = argparse.ArgumentParser(description=\
-        "Download bibliography from a set of authors from DBLP and prepare it for a website")
+        "Download bibliography from a set of authors from DBLP and prepare it for inclusion in a website.")
     parser.add_argument("--mode", default="all",
-            help="Step of processing: 'download', 'filter', 'generate_html', 'fix_html', or 'all' (default)")
+            help="Step of processing: 'download', 'filter', 'generate_html', 'fix_html', or 'all' (default; executes all steps in order)")
     parser.add_argument("--authors_file", 
-            help="A json file with a single object, where the keys (with no spaces) are used to name downloaded author bibliographies, and for each author there is both a DBLP ID (either x/y, where both x and y are integers; or a/b, where a is a single letter and b is an actual name), and a full name. For example, for the author of this program, the entry could look like:\n{example_author_entry}", default=argparse.SUPPRESS)    
+            help="A json file with a single object, where the keys (with no spaces) are used to name downloaded author bibliographies, and for each author there is both a DBLP ID (either x/y, where both x and y are integers; or a/b, where a is a single letter and b is an actual name), and a full name", default=argparse.SUPPRESS)    
     parser.add_argument("--first_year", 
             help=f"First year for filtered pubs (default: {five_years_ago})", type=int, default=five_years_ago)  
     parser.add_argument("--last_year", 
             help=f"Last year for filtered pubs (default: {year})", type=int, default=year)
     parser.add_argument("--citeproc_executable", 
-            help="Full path to citeproc-java-tool-2.0.0 executable; download from https://github.com/michel-kraemer/citeproc-java/releases/download/2.0.0/citeproc-java-tool-2.0.0.zip",
+            help=f"Full path to citeproc-java-tool executable; download from {citeproc_url}",
             default="citeproc-java-tool-2.0.0/bin/citeproc-java")
     parser.add_argument("--html_file", 
-            help="An html-fragment file. Generated by 'generate_html'",default=argparse.SUPPRESS)  
+            help="An html-fragment file. Generated by 'generate_html', used by 'fix_html'",default=argparse.SUPPRESS)  
     parser.add_argument("--bib_file", 
-            help="A bibtex bibliography, with metadata to inject. Generated by 'download'",default=argparse.SUPPRESS)               
-    parser.add_argument("--output_file", 
-            help="Where to write the output, enriched html file", default=argparse.SUPPRESS)
+            help="A bibtex bibliography, with a few additional fields; Generated by 'download', used by 'generate_html' and 'filter_html'",default=argparse.SUPPRESS)               
     parser.add_argument("--template_file", 
-            help="Template html to use for output file (default: 'template.html')", default="template.html")
+            help="Template html to use for output file (default: 'template.html'), used by 'fix_html'", default="template.html")
+    parser.add_argument("--output_file", 
+            help="Where to write the output html file generated by 'fix_html'", default=argparse.SUPPRESS)    
     args = parser.parse_args()
     
     match args.mode:
@@ -368,7 +376,7 @@ if __name__ == '__main__':
                 args.bib_file,
                 args.template_file,
                 args.output_file)
-        case _:
+        case 'all':
             abort_if_missing(['authors_file', 'html_file', 'bib_file', 'output_file'], args)
             download_bibs(args.authors_file)
             filter_bibs(
@@ -386,5 +394,8 @@ if __name__ == '__main__':
                 args.bib_file,
                 args.template_file,
                 args.output_file)
+        case _:
+            raise SystemError(f"Not a valid mode: {args.mode}")
+
     print("Thanks!")
 
