@@ -1,5 +1,4 @@
-#!/usr/bin/python
-
+#!/usr/bin/env python
 """Generates web bibliography from DBLP
 
 The resulting webpage is self-contained, but may reference external resources such as .js or .css 
@@ -14,6 +13,11 @@ Requires:
     a list of dblp-bib-url author-id pairs, to know what to download
     an internet connection to actually download the bibliography
     citeproc-java-tool-2.0.0 (see help for download link) to format it as ieee-with-url
+    
+How to run:
+    1. get a virtual environment installed: python3 -m venv snolabib
+    2. activate it: source snolabib/bin/activate
+    3. install dependencies: pip install -r requirements.txt
        
 """
 
